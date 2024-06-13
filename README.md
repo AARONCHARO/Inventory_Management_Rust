@@ -1,36 +1,37 @@
-# Decentralized Surplus Food Management System
+# Inventory Management System
 
-This project is a decentralized platform built on the Internet Computer for managing surplus food donations. It allows donors to post surplus food, receivers to claim food, and drivers to manage deliveries. The platform ensures robust access control and user management.
+This project is a decentralized platform built on the Internet Computer for managing inventory, suppliers, and orders. It allows users to create, update, retrieve, and delete inventory items, suppliers, and orders, ensuring robust and efficient management of inventory data.
 
 ## Key Features
 
-1. **Donor Management**
-   - **Add Donor:** Allows users to create donor profiles.
-   - **Get All Donors:** Retrieve a list of all donor profiles.
+1. **Item Management**
+   - **Create Item:** Allows users to create inventory items.
+   - **Get All Items:** Retrieve a list of all inventory items.
+   - **Get Item by ID:** Retrieve a specific item by its ID.
+   - **Update Item:** Update the details of an existing inventory item.
+   - **Delete Item:** Remove an inventory item from the system.
+   - **Search Items by Name:** Search for items by their name.
+   - **Count Items:** Get the total number of items.
 
-2. **Receiver Management**
-   - **Add Receiver:** Allows users to create receiver profiles.
-   - **Get All Receivers:** Retrieve a list of all receiver profiles.
+2. **Supplier Management**
+   - **Create Supplier:** Allows users to create supplier profiles.
+   - **Get All Suppliers:** Retrieve a list of all supplier profiles.
+   - **Get Supplier by ID:** Retrieve a specific supplier by its ID.
+   - **Update Supplier:** Update the details of an existing supplier.
+   - **Delete Supplier:** Remove a supplier from the system.
+   - **Count Suppliers:** Get the total number of suppliers.
 
-3. **Driver Management**
-   - **Add Driver:** Allows users to create driver profiles.
-   - **Get All Drivers:** Retrieve a list of all driver profiles.
+3. **Order Management**
+   - **Create Order:** Allows users to create orders for inventory items.
+   - **Get All Orders:** Retrieve a list of all orders.
+   - **Update Order:** Update the details of an existing order.
+   - **Delete Order:** Remove an order from the system.
+   - **Filter Orders by Supplier:** Retrieve orders filtered by supplier ID.
+   - **Count Orders:** Get the total number of orders.
 
-4. **Surplus Post Management**
-   - **Add Surplus Post:** Allows donors to post details of surplus food.
-   - **Get All Surplus Posts:** Retrieve a list of all surplus food posts.
-   - **Get Surplus Post by Food Type:** Retrieve surplus food posts filtered by food type.
-
-5. **Assignment Management**
-   - **Create Assignment:** Assigns a surplus post to a receiver and a driver.
-   - **Get All Assignments:** Retrieve a list of all assignments.
-
-6. **Surplus Record Management**
-   - **Create Surplus Record:** Records the delivery of a surplus post by a driver.
-
-7. **Error Handling**
-   - **Not Found:** Returns an error if a requested item is not found.
-   - **Unauthorized Access:** Returns an error if a user tries to perform an action without necessary permissions.
+4. **Error Handling**
+   - **Invalid Payload:** Returns an error if the input payload is invalid.
+   - **Not Found:** Returns an error if a requested item, supplier, or order is not found.
 
 ## Requirements
 * rustc 1.64 or higher
