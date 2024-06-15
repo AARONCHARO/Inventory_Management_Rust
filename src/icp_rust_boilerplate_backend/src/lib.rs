@@ -147,7 +147,7 @@ fn create_item(payload: ItemPayload) -> Result<Item, Message> {
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
-            counter.borrow_mut().set(current_value + 1)
+            counter.borrow_mut().set(current_value + 1).map(|_| current_value + 1)
         })
         .expect("Cannot increment ID counter");
 
@@ -176,7 +176,7 @@ fn create_supplier(payload: SupplierPayload) -> Result<Supplier, Message> {
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
-            counter.borrow_mut().set(current_value + 1)
+            counter.borrow_mut().set(current_value + 1).map(|_| current_value + 1)
         })
         .expect("Cannot increment ID counter");
 
@@ -203,37 +203,31 @@ fn create_order(payload: OrderPayload) -> Result<Order, Message> {
     }
 
     // Validate if the item_id is valid
-    let item = ITEM_STORAGE.with(|storage| {
+    let item_exists = ITEM_STORAGE.with(|storage| {
         storage
             .borrow()
             .iter()
-            .find(|(_, item)| item.id == payload.item_id)
-            .map(|(_, item)| item.clone())
+            .any(|(_, item)| item.id == payload.item_id)
     });
-    if item.is_none() {
-        return Err(Message::InvalidPayload(
-            "Item ID is invalid.".to_string(),
-        ));
+    if !item_exists {
+        return Err(Message::InvalidPayload("Item ID is invalid.".to_string()));
     }
 
     // Validate if the supplier_id is valid
-    let supplier = SUPPLIER_STORAGE.with(|storage| {
+    let supplier_exists = SUPPLIER_STORAGE.with(|storage| {
         storage
             .borrow()
             .iter()
-            .find(|(_, supplier)| supplier.id == payload.supplier_id)
-            .map(|(_, supplier)| supplier.clone())
+            .any(|(_, supplier)| supplier.id == payload.supplier_id)
     });
-    if supplier.is_none() {
-        return Err(Message::InvalidPayload(
-            "Supplier ID is invalid.".to_string(),
-        ));
+    if !supplier_exists {
+        return Err(Message::InvalidPayload("Supplier ID is invalid.".to_string()));
     }
 
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
-            counter.borrow_mut().set(current_value + 1)
+            counter.borrow_mut().set(current_value + 1).map(|_| current_value + 1)
         })
         .expect("Cannot increment ID counter");
 
@@ -246,6 +240,15 @@ fn create_order(payload: OrderPayload) -> Result<Order, Message> {
     };
 
     ORDER_STORAGE.with(|storage| storage.borrow_mut().insert(id, order.clone()));
+
+    // Update supplier's items_supplied_ids
+    SUPPLIER_STORAGE.with(|storage| {
+        storage.borrow_mut().iter_mut().for_each(|(_, supplier)| {
+            if supplier.id == payload.supplier_id {
+                supplier.items_supplied_ids.push(payload.item_id.clone());
+            }
+        })
+    });
 
     Ok(order)
 }
@@ -300,7 +303,8 @@ fn get_item_by_id(item_id: String) -> Result<Item, Message> {
 }
 
 // Function to get a supplier by ID
-#[ic_cdk::query]
+#[ic_cdk
+::query]
 fn get_supplier_by_id(supplier_id: String) -> Result<Supplier, Message> {
     SUPPLIER_STORAGE.with(|storage| {
         storage
@@ -312,14 +316,33 @@ fn get_supplier_by_id(supplier_id: String) -> Result<Supplier, Message> {
     })
 }
 
-// Function to update an existing inventory item
+// Function to get an order by ID
+#[ic_cdk::query]
+fn get_order_by_id(order_id: String) -> Result<Order, Message> {
+    ORDER_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .find(|(_, order)| order.id == order_id)
+            .map(|(_, order)| order.clone())
+            .ok_or(Message::NotFound("Order not found".to_string()))
+    })
+}
+
+// Function to update an item by ID
 #[ic_cdk::update]
 fn update_item(item_id: String, payload: ItemPayload) -> Result<Item, Message> {
+    if payload.name.is_empty() || payload.description.is_empty() || payload.quantity == 0 {
+        return Err(Message::InvalidPayload(
+            "Ensure 'name', 'description', and 'quantity' are provided.".to_string(),
+        ));
+    }
+
     ITEM_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
-        let id = storage.iter().find(|(_, item)| item.id == item_id);
-        match id {
-            Some((key, _)) => {
+        let item_key = storage.iter().find(|(_, item)| item.id == item_id).map(|(k, _)| k);
+        match item_key {
+            Some(key) => {
                 let updated_item = Item {
                     id: item_id.clone(),
                     name: payload.name,
@@ -335,19 +358,25 @@ fn update_item(item_id: String, payload: ItemPayload) -> Result<Item, Message> {
     })
 }
 
-// Function to update an existing supplier
+// Function to update a supplier by ID
 #[ic_cdk::update]
 fn update_supplier(supplier_id: String, payload: SupplierPayload) -> Result<Supplier, Message> {
+    if payload.name.is_empty() || payload.contact_info.is_empty() {
+        return Err(Message::InvalidPayload(
+            "Ensure 'name' and 'contact_info' are provided.".to_string(),
+        ));
+    }
+
     SUPPLIER_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
-        let id = storage.iter().find(|(_, supplier)| supplier.id == supplier_id);
-        match id {
-            Some((key, _)) => {
+        let supplier_key = storage.iter().find(|(_, supplier)| supplier.id == supplier_id).map(|(k, _)| k);
+        match supplier_key {
+            Some(key) => {
                 let updated_supplier = Supplier {
                     id: supplier_id.clone(),
                     name: payload.name,
                     contact_info: payload.contact_info,
-                    items_supplied_ids: vec![],
+                    items_supplied_ids: storage.get(&key).unwrap().items_supplied_ids.clone(),
                     created_at: time(),
                 };
                 storage.insert(key, updated_supplier.clone());
@@ -358,128 +387,241 @@ fn update_supplier(supplier_id: String, payload: SupplierPayload) -> Result<Supp
     })
 }
 
-// Function to update an existing order
+// Function to delete an item by ID
 #[ic_cdk::update]
-fn update_order(order_id: String, payload: OrderPayload) -> Result<Order, Message> {
-    ORDER_STORAGE.with(|storage| {
-        let mut storage = storage.borrow_mut();
-        let id = storage.iter().find(|(_, order)| order.id == order_id);
-        match id {
-            Some((key, _)) => {
-                let updated_order = Order {
-                    id: order_id.clone(),
-                    item_id: payload.item_id,
-                    quantity: payload.quantity,
-                    order_date: time(),
-                    supplier_id: payload.supplier_id,
-                };
-                storage.insert(key, updated_order.clone());
-                Ok(updated_order)
-            }
-            None => Err(Message::NotFound("Order not found".to_string())),
-        }
-    })
-}
-
-// Function to delete an inventory item
-#[ic_cdk::update]
-fn delete_item(item_id: String) -> Result<(), Message> {
+fn delete_item(item_id: String) -> Result<Message, Message> {
     ITEM_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
-        let id = storage.iter().find(|(_, item)| item.id == item_id);
-        match id {
-            Some((key, _)) => {
+        let item_key = storage.iter().find(|(_, item)| item.id == item_id).map(|(k, _)| k);
+        match item_key {
+            Some(key) => {
                 storage.remove(&key);
-                Ok(())
+                Ok(Message::Success("Item deleted".to_string()))
             }
             None => Err(Message::NotFound("Item not found".to_string())),
         }
     })
 }
 
-// Function to delete a supplier
+// Function to delete a supplier by ID
 #[ic_cdk::update]
-fn delete_supplier(supplier_id: String) -> Result<(), Message> {
+fn delete_supplier(supplier_id: String) -> Result<Message, Message> {
     SUPPLIER_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
-        let id = storage.iter().find(|(_, supplier)| supplier.id == supplier_id);
-        match id {
-            Some((key, _)) => {
+        let supplier_key = storage.iter().find(|(_, supplier)| supplier.id == supplier_id).map(|(k, _)| k);
+        match supplier_key {
+            Some(key) => {
                 storage.remove(&key);
-                Ok(())
+                Ok(Message::Success("Supplier deleted".to_string()))
             }
             None => Err(Message::NotFound("Supplier not found".to_string())),
         }
     })
 }
 
-// Function to delete an order
+// Function to delete an order by ID
 #[ic_cdk::update]
-fn delete_order(order_id: String) -> Result<(), Message> {
+fn delete_order(order_id: String) -> Result<Message, Message> {
     ORDER_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
-        let id = storage.iter().find(|(_, order)| order.id == order_id);
-        match id {
-            Some((key, _)) => {
+        let order_key = storage.iter().find(|(_, order)| order.id == order_id).map(|(k, _)| k);
+        match order_key {
+            Some(key) => {
                 storage.remove(&key);
-                Ok(())
+                Ok(Message::Success("Order deleted".to_string()))
             }
             None => Err(Message::NotFound("Order not found".to_string())),
         }
     })
 }
 
-// Function to search for items by name
-#[ic_cdk::query]
-fn search_items_by_name(name: String) -> Vec<Item> {
-    ITEM_STORAGE.with(|storage| {
-        storage
-            .borrow()
-            .iter()
-            .filter(|(_, item)| item.name.contains(&name))
-            .map(|(_, item)| item.clone())
-            .collect()
-    })
-    
-}
-
-
-// Function to filter orders by supplier ID
-#[ic_cdk::query]
-fn filter_orders_by_supplier(supplier_id: String) -> Vec<Order> {
-    ORDER_STORAGE.with(|storage| {
-        storage
-            .borrow()
-            .iter()
-            .filter(|(_, order)| order.supplier_id == supplier_id)
-            .map(|(_, order)| order.clone())
-            .collect()
-    })
-}
-
-// Function to count the number of items
-#[ic_cdk::query]
-fn count_items() -> u64 {
-    ITEM_STORAGE.with(|storage| storage.borrow().len() as u64)
-}
-
-// Function to count the number of suppliers
-#[ic_cdk::query]
-fn count_suppliers() -> u64 {
-    SUPPLIER_STORAGE.with(|storage| storage.borrow().len() as u64)
-}
-
-// Function to count the number of orders
-#[ic_cdk::query]
-fn count_orders() -> u64 {
-    ORDER_STORAGE.with(|storage| storage.borrow().len() as u64)
-}
-
-// Error types
-#[derive(candid::CandidType, Deserialize, Serialize)]
-enum Error {
-    NotFound { msg: String },
-}
-
-// need this to generate candid
+// Export candid definitions for the canister
 ic_cdk::export_candid!();
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candid::Encode;
+
+    #[test]
+    fn test_create_item() {
+        let payload = ItemPayload {
+            name: "Item1".to_string(),
+            description: "Description1".to_string(),
+            quantity: 10,
+        };
+        let result = create_item(payload);
+        assert!(result.is_ok());
+        let item = result.unwrap();
+        assert_eq!(item.name, "Item1");
+        assert_eq!(item.description, "Description1");
+        assert_eq!(item.quantity, 10);
+    }
+
+    #[test]
+    fn test_create_supplier() {
+        let payload = SupplierPayload {
+            name: "Supplier1".to_string(),
+            contact_info: "Contact1".to_string(),
+        };
+        let result = create_supplier(payload);
+        assert!(result.is_ok());
+        let supplier = result.unwrap();
+        assert_eq!(supplier.name, "Supplier1");
+        assert_eq!(supplier.contact_info, "Contact1");
+    }
+
+    #[test]
+    fn test_create_order() {
+        let item_payload = ItemPayload {
+            name: "Item1".to_string(),
+            description: "Description1".to_string(),
+            quantity: 10,
+        };
+        let item_result = create_item(item_payload);
+        assert!(item_result.is_ok());
+        let item = item_result.unwrap();
+
+        let supplier_payload = SupplierPayload {
+            name: "Supplier1".to_string(),
+            contact_info: "Contact1".to_string(),
+        };
+        let supplier_result = create_supplier(supplier_payload);
+        assert!(supplier_result.is_ok());
+        let supplier = supplier_result.unwrap();
+
+        let order_payload = OrderPayload {
+            item_id: item.id.clone(),
+            quantity: 5,
+            supplier_id: supplier.id.clone(),
+        };
+        let result = create_order(order_payload);
+        assert!(result.is_ok());
+        let order = result.unwrap();
+        assert_eq!(order.item_id, item.id);
+        assert_eq!(order.quantity, 5);
+        assert_eq!(order.supplier_id, supplier.id);
+    }
+
+    #[test]
+    fn test_update_item() {
+        let create_payload = ItemPayload {
+            name: "Item1".to_string(),
+            description: "Description1".to_string(),
+            quantity: 10,
+        };
+        let create_result = create_item(create_payload);
+        assert!(create_result.is_ok());
+        let item = create_result.unwrap();
+
+        let update_payload = ItemPayload {
+            name: "UpdatedItem".to_string(),
+            description: "UpdatedDescription".to_string(),
+            quantity: 20,
+        };
+        let update_result = update_item(item.id.clone(), update_payload);
+        assert!(update_result.is_ok());
+        let updated_item = update_result.unwrap();
+        assert_eq!(updated_item.name, "UpdatedItem");
+        assert_eq!(updated_item.description, "UpdatedDescription");
+        assert_eq!(updated_item.quantity, 20);
+    }
+
+    #[test]
+    fn test_update_supplier() {
+        let create_payload = SupplierPayload {
+            name: "Supplier1".to_string(),
+            contact_info: "Contact1".to_string(),
+        };
+        let create_result = create_supplier(create_payload);
+        assert!(create_result.is_ok());
+        let supplier = create_result.unwrap();
+
+        let update_payload = SupplierPayload {
+            name: "UpdatedSupplier".to_string(),
+            contact_info: "UpdatedContact".to_string(),
+        };
+        let update_result = update_supplier(supplier.id.clone(), update_payload);
+        assert!(update_result.is_ok());
+        let updated_supplier = update_result.unwrap();
+        assert_eq!(updated_supplier.name, "UpdatedSupplier");
+        assert_eq!(updated_supplier.contact_info, "UpdatedContact");
+    }
+
+    #[test]
+    fn test_delete_item() {
+        let create_payload = ItemPayload {
+            name: "Item1".to_string(),
+            description: "Description1".to_string(),
+            quantity: 10,
+        };
+        let create_result = create_item(create_payload);
+        assert!(create_result.is_ok());
+        let item = create_result.unwrap();
+
+        let delete_result = delete_item(item.id.clone());
+        assert!(delete_result.is_ok());
+
+        let get_result = get_item_by_id(item.id);
+        assert!(get_result.is_err());
+    }
+
+    #[test]
+    fn test_delete_supplier() {
+        let create_payload = SupplierPayload {
+            name: "Supplier1".to_string(),
+            contact_info: "Contact1".to_string(),
+        };
+        let create_result = create_supplier(create_payload);
+        assert!(create_result.is_ok());
+        let supplier = create_result.unwrap();
+
+        let delete_result = delete_supplier(supplier.id.clone());
+        assert!(delete_result.is_ok());
+
+        let get_result = get_supplier_by_id(supplier.id);
+        assert!(get_result.is_err());
+    }
+
+    #[test]
+    fn test_delete_order() {
+        let item_payload = ItemPayload {
+            name: "Item1".to
+            to_string(),
+            description: "Description1".to_string(),
+            quantity: 10,
+        };
+        let item_result = create_item(item_payload);
+        assert!(item_result.is_ok());
+        let item = item_result.unwrap();
+
+        let supplier_payload = SupplierPayload {
+            name: "Supplier1".to_string(),
+            contact_info: "Contact1".to_string(),
+        };
+        let supplier_result = create_supplier(supplier_payload);
+        assert!(supplier_result.is_ok());
+        let supplier = supplier_result.unwrap();
+
+        let order_payload = OrderPayload {
+            item_id: item.id.clone(),
+            quantity: 5,
+            supplier_id: supplier.id.clone(),
+        };
+        let create_order_result = create_order(order_payload);
+        assert!(create_order_result.is_ok());
+        let order = create_order_result.unwrap();
+
+        let delete_result = delete_order(order.id.clone());
+        assert!(delete_result.is_ok());
+
+        let get_result = get_order_by_id(order.id);
+        assert!(get_result.is_err());
+    }
+}
+
+// Main function to start the canister
+#[ic_cdk::init]
+fn init() {
+    ic_cdk::setup();
+}
