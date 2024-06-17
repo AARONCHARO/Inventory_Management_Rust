@@ -34,6 +34,7 @@ struct Order {
     quantity: u32,
     order_date: u64,
     supplier_id: String,
+    status: String, // New field for order status
 }
 
 impl Storable for Item {
@@ -243,6 +244,7 @@ fn create_order(payload: OrderPayload) -> Result<Order, Message> {
         quantity: payload.quantity,
         order_date: time(),
         supplier_id: payload.supplier_id,
+        status: "Pending".to_string(), // Initial status
     };
 
     ORDER_STORAGE.with(|storage| storage.borrow_mut().insert(id, order.clone()));
@@ -372,9 +374,28 @@ fn update_order(order_id: String, payload: OrderPayload) -> Result<Order, Messag
                     quantity: payload.quantity,
                     order_date: time(),
                     supplier_id: payload.supplier_id,
+                    status: "Pending".to_string(), // Reset status on update
                 };
                 storage.insert(key, updated_order.clone());
                 Ok(updated_order)
+            }
+            None => Err(Message::NotFound("Order not found".to_string())),
+        }
+    })
+}
+
+// Function to update the status of an order
+#[ic_cdk::update]
+fn update_order_status(order_id: String, status: String) -> Result<Order, Message> {
+    ORDER_STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        let id = storage.iter().find(|(_, order)| order.id == order_id);
+        match id {
+            Some((key, _)) => {
+                let mut order = storage.get(&key).unwrap();
+                order.status = status.clone();
+                storage.insert(key, order.clone());
+                Ok(order)
             }
             None => Err(Message::NotFound("Order not found".to_string())),
         }
@@ -440,9 +461,7 @@ fn search_items_by_name(name: String) -> Vec<Item> {
             .map(|(_, item)| item.clone())
             .collect()
     })
-    
 }
-
 
 // Function to filter orders by supplier ID
 #[ic_cdk::query]
@@ -454,6 +473,20 @@ fn filter_orders_by_supplier(supplier_id: String) -> Vec<Order> {
             .filter(|(_, order)| order.supplier_id == supplier_id)
             .map(|(_, order)| order.clone())
             .collect()
+    })
+}
+
+// Function to get items supplied by a specific supplier
+#[ic_cdk::query]
+fn get_items_by_supplier(supplier_id: String) -> Vec<Item> {
+    SUPPLIER_STORAGE.with(|storage| {
+        storage.borrow().iter().find(|(_, supplier)| supplier.id == supplier_id).map(|(_, supplier)| {
+            supplier.items_supplied_ids.iter().filter_map(|item_id| {
+                ITEM_STORAGE.with(|item_storage| {
+                    item_storage.borrow().iter().find(|(_, item)| item.id == item_id.clone()).map(|(_, item)| item.clone())
+                })
+            }).collect()
+        }).unwrap_or_else(Vec::new)
     })
 }
 
@@ -475,11 +508,51 @@ fn count_orders() -> u64 {
     ORDER_STORAGE.with(|storage| storage.borrow().len() as u64)
 }
 
+// Function to add initial data for testing
+#[ic_cdk::update]
+fn add_initial_data() -> Result<(), Message> {
+    create_item(ItemPayload {
+        name: "Item 1".to_string(),
+        description: "First item".to_string(),
+        quantity: 100,
+    }).ok();
+
+    create_item(ItemPayload {
+        name: "Item 2".to_string(),
+        description: "Second item".to_string(),
+        quantity: 200,
+    }).ok();
+
+    create_supplier(SupplierPayload {
+        name: "Supplier 1".to_string(),
+        contact_info: "supplier1@example.com".to_string(),
+    }).ok();
+
+    create_supplier(SupplierPayload {
+        name: "Supplier 2".to_string(),
+        contact_info: "supplier2@example.com".to_string(),
+    }).ok();
+
+    create_order(OrderPayload {
+        item_id: "1".to_string(),
+        quantity: 10,
+        supplier_id: "3".to_string(),
+    }).ok();
+
+    create_order(OrderPayload {
+        item_id: "2".to_string(),
+        quantity: 20,
+        supplier_id: "4".to_string(),
+    }).ok();
+
+    Ok(())
+}
+
 // Error types
 #[derive(candid::CandidType, Deserialize, Serialize)]
 enum Error {
     NotFound { msg: String },
 }
 
-// need this to generate candid
+// Need this to generate candid
 ic_cdk::export_candid!();

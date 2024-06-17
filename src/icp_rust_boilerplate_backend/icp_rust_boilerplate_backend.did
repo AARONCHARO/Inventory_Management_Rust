@@ -14,6 +14,7 @@ type Message = variant {
 };
 type Order = record {
   id : text;
+  status : text;
   supplier_id : text;
   order_date : nat64;
   quantity : nat32;
@@ -24,10 +25,10 @@ type OrderPayload = record {
   quantity : nat32;
   item_id : text;
 };
-type Result = variant { Ok : Item; Err : Message };
-type Result_1 = variant { Ok : Order; Err : Message };
-type Result_2 = variant { Ok : Supplier; Err : Message };
-type Result_3 = variant { Ok; Err : Message };
+type Result = variant { Ok; Err : Message };
+type Result_1 = variant { Ok : Item; Err : Message };
+type Result_2 = variant { Ok : Order; Err : Message };
+type Result_3 = variant { Ok : Supplier; Err : Message };
 type Supplier = record {
   id : text;
   name : text;
@@ -37,23 +38,26 @@ type Supplier = record {
 };
 type SupplierPayload = record { name : text; contact_info : text };
 service : {
+  add_initial_data : () -> (Result);
   count_items : () -> (nat64) query;
   count_orders : () -> (nat64) query;
   count_suppliers : () -> (nat64) query;
-  create_item : (ItemPayload) -> (Result);
-  create_order : (OrderPayload) -> (Result_1);
-  create_supplier : (SupplierPayload) -> (Result_2);
-  delete_item : (text) -> (Result_3);
-  delete_order : (text) -> (Result_3);
-  delete_supplier : (text) -> (Result_3);
+  create_item : (ItemPayload) -> (Result_1);
+  create_order : (OrderPayload) -> (Result_2);
+  create_supplier : (SupplierPayload) -> (Result_3);
+  delete_item : (text) -> (Result);
+  delete_order : (text) -> (Result);
+  delete_supplier : (text) -> (Result);
   filter_orders_by_supplier : (text) -> (vec Order) query;
   get_all_items : () -> (vec Item) query;
   get_all_orders : () -> (vec Order) query;
   get_all_suppliers : () -> (vec Supplier) query;
-  get_item_by_id : (text) -> (Result) query;
-  get_supplier_by_id : (text) -> (Result_2) query;
+  get_item_by_id : (text) -> (Result_1) query;
+  get_items_by_supplier : (text) -> (vec Item) query;
+  get_supplier_by_id : (text) -> (Result_3) query;
   search_items_by_name : (text) -> (vec Item) query;
-  update_item : (text, ItemPayload) -> (Result);
-  update_order : (text, OrderPayload) -> (Result_1);
-  update_supplier : (text, SupplierPayload) -> (Result_2);
+  update_item : (text, ItemPayload) -> (Result_1);
+  update_order : (text, OrderPayload) -> (Result_2);
+  update_order_status : (text, text) -> (Result_2);
+  update_supplier : (text, SupplierPayload) -> (Result_3);
 }
